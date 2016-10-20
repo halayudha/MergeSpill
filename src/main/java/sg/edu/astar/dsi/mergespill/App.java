@@ -18,12 +18,14 @@ import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.compress.CompressionCodec;
 import org.apache.hadoop.mapred.Counters;
+import org.apache.hadoop.mapred.IFile.Writer;
 import org.apache.hadoop.mapred.IndexRecord;
 import org.apache.hadoop.mapred.JobConf;
 import org.apache.hadoop.mapred.Merger;
 import org.apache.hadoop.mapred.Merger.Segment;
 import org.apache.hadoop.mapred.RawKeyValueIterator;
 import org.apache.hadoop.mapred.SpillRecord;
+import org.apache.hadoop.mapreduce.CryptoUtils;
 import org.apache.hadoop.mapreduce.TaskType;
 
 /**
@@ -121,7 +123,18 @@ public class App {
                                                      spilledRecordsCounter, 
                                                      null, 
                                                      TaskType.MAP);
-                                                     
+            //write merged output to disk
+            long segmentStart = finalOut.getPos();
+            FSDataOutputStream finalPartitionOut = CryptoUtils.wrapIfNecessary(job, finalOut);
+            Writer<Text, IntWritable> writer = new Writer<Text, IntWritable>(job,
+                            finalPartitionOut,
+                            Text.class,
+                            IntWritable.class,
+                            codec,
+                            spilledRecordsCounter);
+            Merger.writeFile(kvIter, writer, null, job);
+            writer.close();
+            finalOut.close();
         
         
         
