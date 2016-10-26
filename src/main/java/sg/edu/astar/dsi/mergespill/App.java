@@ -89,6 +89,8 @@ public class App {
             Path finalOutputFile = new Path("/home/hduser/FINALOUTPUTFILE");
             FSDataOutputStream finalOut = rfs.create(finalOutputFile, true, 4096);
             
+            Path finalIndexFile = new Path("/home/hduser/FINALOUTPUTFILE.INDEX");
+            
             //ONE PARTITION ONLY
             List<Segment<Text, IntWritable>> segmentList = new ArrayList<>(numSpills);
             for (int i = 0 ; i < numSpills; i ++){
@@ -136,6 +138,16 @@ public class App {
             writer.close();
             finalOut.close();
         
+            IndexRecord rec = new IndexRecord();
+            final SpillRecord spillRec = new SpillRecord(1);
+            rec.startOffset = segmentStart;
+            rec.rawLength = writer.getRawLength() + CryptoUtils.cryptoPadding(job);
+            rec.partLength = writer.getCompressedLength() + CryptoUtils.cryptoPadding(job);
+            System.out.println("rec.startOffset: " + rec.startOffset);
+            System.out.println("rec.rawLength  : " + rec.rawLength);
+            System.out.println("rec.partLength : " + rec.partLength);
+            spillRec.putIndex(rec, 0);
+            spillRec.writeToFile(finalIndexFile, job);
         
         
         
