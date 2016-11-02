@@ -7,10 +7,16 @@ package sg.edu.astar.dsi.mergespill;
 
 import java.io.File;
 import java.io.IOException;
+import static java.lang.Thread.sleep;
 import org.apache.hadoop.fs.Path;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import org.apache.avro.io.Decoder;
+import org.apache.avro.io.DecoderFactory;
+import org.apache.avro.specific.SpecificDatumReader;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocalFileSystem;
@@ -27,6 +33,8 @@ import org.apache.hadoop.mapred.RawKeyValueIterator;
 import org.apache.hadoop.mapred.SpillRecord;
 import org.apache.hadoop.mapreduce.CryptoUtils;
 import org.apache.hadoop.mapreduce.TaskType;
+import org.zeromq.ZMQ;
+import org.zeromq.ZMQ.Context;
 
 /**
  *
@@ -34,11 +42,66 @@ import org.apache.hadoop.mapreduce.TaskType;
  */
 public class App {
 
-    
-    
-    public static void main(String[] args) throws IOException {
+    public static void main(String[] args) {
         // TODO code application logic here
-        System.out.println("args 0:" + args[0]);
+        ZMQ.Context context = ZMQ.context(1);
+        ZMQ.Socket clients = context.socket(ZMQ.ROUTER);
+        clients.bind("tcp://*:5556");
+        
+        ZMQ.Socket workers = context.socket(ZMQ.DEALER);
+        workers.bind("inproc://workers");
+        
+        for (int thread_nbr = 0; thread_nbr < 50; thread_nbr++){
+            Thread worker = new Worker (context);
+            worker.start();
+        }
+        
+        //Connect work threads to client threads via a queue
+        ZMQ.proxy(clients, workers, null);
+        
+        clients.close();
+        workers.close();
+        context.term();
+    }
+    
+    private static class Worker extends Thread{
+        private Context context;
+        private Worker (Context context){
+            this.context = context;
+        }
+        @Override
+        public void run(){
+            ZMQ.Socket socket = context.socket(ZMQ.REP);
+            socket.connect("inproc://workers");
+            while (true){
+                byte[] request = socket.recv(0);
+                socket.send("",0);
+                SpecificDatumReader<mergeinfo> reader = new SpecificDatumReader<mergeinfo>(mergeinfo.getClassSchema());
+                Decoder decoder = DecoderFactory.get().binaryDecoder(request, null);
+                try{
+                    mergeinfo mInfo = reader.read(null,decoder);
+                    System.out.println("MINFO DATA");
+                    System.out.println(mInfo.getMaptaskid());
+                    System.out.println(mInfo.getNumberofreducer());
+                    System.out.println(mInfo.getNumberofspill());
+                    System.out.println(mInfo.getReduceno());
+                    System.out.println(mInfo.getJobid());
+                    String directory = "/home/hduser/"+mInfo.getJobid()+File.separator+mInfo.getMaptaskid()+File.separator+"reduce_"+mInfo.getReduceno();
+                    doProcess(directory, mInfo.getNumberofspill());
+                } catch (IOException ex) {
+                    Logger.getLogger(App.class.getName()).log(Level.SEVERE, null, ex);
+                } catch (InterruptedException ex) {
+                    Logger.getLogger(App.class.getName()).log(Level.SEVERE, null, ex);
+                }
+            }
+        }
+    }
+    
+    
+    public synchronized static void  doProcess(String directory, int spillNumber) throws IOException, InterruptedException{
+        // TODO code application logic here
+        System.out.println("directory: " + directory);
+        System.out.println("numberOfSpill: " + spillNumber);
         //SETUP
         JobConf  job = new JobConf();
         job.setMapOutputKeyClass(Text.class);
@@ -51,7 +114,7 @@ public class App {
         rfs =((LocalFileSystem)FileSystem.getLocal(job)).getRaw();
         
         
-        if ( new File(args[0]).isDirectory()){
+        if ( new File(directory).isDirectory()){
             ArrayList<Path> spillFile = new ArrayList();
             ArrayList<Path> spillFileIndex = new ArrayList();
         
@@ -60,7 +123,7 @@ public class App {
             App myApp;
             myApp = new App();
     
-            myApp.getSpillFilesAndIndices(new File(args[0]), spillFile, spillFileIndex);
+            myApp.getSpillFilesAndIndices(new File(directory), spillFile, spillFileIndex, spillNumber);
             
             ArrayList<SpillRecord> indexCacheList = new ArrayList<>();
             int numSpills= 0;
@@ -86,10 +149,10 @@ public class App {
             }
             System.out.println("Number of spills: " + numSpills);
             //FinalOutputFile
-            Path finalOutputFile = new Path("/home/hduser/FINALOUTPUTFILE");
+            Path finalOutputFile = new Path(directory + File.separator + "FINALOUTPUTFILE");
             FSDataOutputStream finalOut = rfs.create(finalOutputFile, true, 4096);
-            
-            Path finalIndexFile = new Path("/home/hduser/FINALOUTPUTFILE.INDEX");
+            System.out.println("GOT HERE 1");
+            Path finalIndexFile = new Path(directory + File.separator + "FINALOUTPUTFILE.index");
             
             //ONE PARTITION ONLY
             List<Segment<Text, IntWritable>> segmentList = new ArrayList<>(numSpills);
@@ -111,7 +174,7 @@ public class App {
                                                              true);
                 segmentList.add(i,s);
             }
-                
+            System.out.println("GOT HERE 2");    
             RawKeyValueIterator kvIter = Merger.merge(job, rfs, keyClass, 
                                                      valClass, 
                                                      null,
@@ -125,6 +188,7 @@ public class App {
                                                      spilledRecordsCounter, 
                                                      null, 
                                                      TaskType.MAP);
+            System.out.println("GOT HERE 3");
             //write merged output to disk
             long segmentStart = finalOut.getPos();
             FSDataOutputStream finalPartitionOut = CryptoUtils.wrapIfNecessary(job, finalOut);
@@ -134,9 +198,11 @@ public class App {
                             IntWritable.class,
                             codec,
                             spilledRecordsCounter);
+            System.out.println("GOT HERE 4");
             Merger.writeFile(kvIter, writer, null, job);
             writer.close();
             finalOut.close();
+            System.out.println("GOT HERE 5");
         
             IndexRecord rec = new IndexRecord();
             final SpillRecord spillRec = new SpillRecord(1);
@@ -148,7 +214,7 @@ public class App {
             System.out.println("rec.partLength : " + rec.partLength);
             spillRec.putIndex(rec, 0);
             spillRec.writeToFile(finalIndexFile, job);
-        
+            System.out.println("GOT HERE 6");
         
         
         
@@ -163,7 +229,11 @@ public class App {
     
     }
     
-    public  void getSpillFilesAndIndices(final File folder, ArrayList spillFile, ArrayList spillFileIndex) throws IOException{
+    public  void getSpillFilesAndIndices(final File folder, ArrayList spillFile, ArrayList spillFileIndex, int spillNumber) throws IOException, InterruptedException{
+        while(folder.listFiles().length < spillNumber*2){
+            
+        }
+        
         for (final File fileEntry: folder.listFiles()){
             
                 //System.out.println(fileEntry.getName());
