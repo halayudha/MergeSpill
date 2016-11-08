@@ -86,7 +86,7 @@ public class App {
                     System.out.println(mInfo.getNumberofspill());
                     System.out.println(mInfo.getReduceno());
                     System.out.println(mInfo.getJobid());
-                    String directory = "/home/hduser/"+mInfo.getJobid()+File.separator+mInfo.getMaptaskid()+File.separator+"reduce_"+mInfo.getReduceno();
+                    String directory = "/home/hduser/"+mInfo.getJobid()+File.separator+mInfo.getMaptaskid().substring(0,35)+File.separator+"reduce_"+mInfo.getReduceno();
                     doProcess(directory, mInfo.getNumberofspill());
                 } catch (IOException ex) {
                     Logger.getLogger(App.class.getName()).log(Level.SEVERE, null, ex);
@@ -219,7 +219,7 @@ public class App {
         
         
         }else{
-            System.out.println("argument is not a directory!");
+            System.out.println("argument is not a directory! : " + directory);
         }
         
     
