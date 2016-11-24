@@ -113,6 +113,9 @@ public class App {
         Counters.Counter spilledRecordsCounter = null;
         rfs =((LocalFileSystem)FileSystem.getLocal(job)).getRaw();
         
+        while( !new File(directory).isDirectory()){
+            sleep(5000);
+        }
         
         if ( new File(directory).isDirectory()){
             ArrayList<Path> spillFile = new ArrayList();
