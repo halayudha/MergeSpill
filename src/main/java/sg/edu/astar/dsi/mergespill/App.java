@@ -35,6 +35,7 @@ import org.apache.hadoop.mapreduce.CryptoUtils;
 import org.apache.hadoop.mapreduce.TaskType;
 import org.zeromq.ZMQ;
 import org.zeromq.ZMQ.Context;
+import org.apache.hadoop.io.TextDsi;
 
 /**
  *
@@ -104,9 +105,11 @@ public class App {
         System.out.println("numberOfSpill: " + spillNumber);
         //SETUP
         JobConf  job = new JobConf();
-        job.setMapOutputKeyClass(Text.class);
+        //job.setMapOutputKeyClass(Text.class);
+        job.setMapOutputKeyClass(TextDsi.class);
         job.setMapOutputValueClass(IntWritable.class);
-        Class<Text> keyClass = (Class<Text>)job.getMapOutputKeyClass();
+        //Class<Text> keyClass = (Class<Text>)job.getMapOutputKeyClass();
+        Class<TextDsi> keyClass = (Class<TextDsi>)job.getMapOutputKeyClass();
         Class<IntWritable> valClass = (Class<IntWritable>)job.getMapOutputValueClass();
         FileSystem rfs;
         CompressionCodec codec = null;
@@ -158,7 +161,7 @@ public class App {
             Path finalIndexFile = new Path(directory + File.separator + "FINALOUTPUTFILE.index");
             
             //ONE PARTITION ONLY
-            List<Segment<Text, IntWritable>> segmentList = new ArrayList<>(numSpills);
+            List<Segment<TextDsi, IntWritable>> segmentList = new ArrayList<>(numSpills);
             for (int i = 0 ; i < numSpills; i ++){
                 IndexRecord theIndexRecord = indexCacheList.get(i).getIndex(0);
                 Path temp = spillFileIndex.get(i);
@@ -168,7 +171,7 @@ public class App {
                 //System.out.println(new Path(temp2).getParent());
                 //File myFile = new File(temp2);
                 //System.out.println(myFile.getPath());
-                Segment<Text, IntWritable> s = new Segment<> (job, 
+                Segment<TextDsi, IntWritable> s = new Segment<> (job, 
                                                              rfs, 
                                                              new Path(temp2),
                                                              theIndexRecord.startOffset,
@@ -195,9 +198,9 @@ public class App {
             //write merged output to disk
             long segmentStart = finalOut.getPos();
             FSDataOutputStream finalPartitionOut = CryptoUtils.wrapIfNecessary(job, finalOut);
-            Writer<Text, IntWritable> writer = new Writer<Text, IntWritable>(job,
+            Writer<TextDsi, IntWritable> writer = new Writer<TextDsi, IntWritable>(job,
                             finalPartitionOut,
-                            Text.class,
+                            TextDsi.class,
                             IntWritable.class,
                             codec,
                             spilledRecordsCounter);
